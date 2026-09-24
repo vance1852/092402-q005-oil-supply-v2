@@ -103,6 +103,98 @@ CREATE TABLE IF NOT EXISTS inventory_adjustments (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS stock_count_sessions (
+    session_id TEXT PRIMARY KEY,
+    facility_id TEXT NOT NULL REFERENCES facilities(facility_id),
+    product TEXT NOT NULL,
+    tolerance_percent TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open'
+        CHECK(state IN ('open','pending_review','adjusted','rejected','split_investigation')),
+    revision INTEGER NOT NULL DEFAULT 1,
+    book_snapshot_sha256 TEXT NOT NULL,
+    transit_snapshot_sha256 TEXT NOT NULL,
+    book_barrels TEXT NOT NULL,
+    measured_barrels TEXT,
+    delta_barrels TEXT,
+    variance_percent TEXT,
+    within_tolerance INTEGER CHECK(within_tolerance IS NULL OR within_tolerance IN (0,1)),
+    opened_by TEXT NOT NULL REFERENCES supply_users(user_id),
+    opened_at TEXT NOT NULL,
+    closed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_counts_facility
+ON stock_count_sessions(facility_id, product, state);
+
+CREATE TABLE IF NOT EXISTS stock_count_lot_snapshots (
+    session_id TEXT NOT NULL REFERENCES stock_count_sessions(session_id),
+    lot_id TEXT NOT NULL,
+    product TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    available_barrels TEXT NOT NULL,
+    lot_revision INTEGER NOT NULL,
+    PRIMARY KEY(session_id, lot_id)
+);
+
+CREATE TABLE IF NOT EXISTS stock_count_transit_snapshots (
+    session_id TEXT NOT NULL REFERENCES stock_count_sessions(session_id),
+    transfer_id TEXT NOT NULL,
+    nomination_id TEXT NOT NULL,
+    inventory_lot_id TEXT NOT NULL,
+    expected_delivered_barrels TEXT NOT NULL,
+    transfer_state TEXT NOT NULL,
+    PRIMARY KEY(session_id, transfer_id)
+);
+
+CREATE TABLE IF NOT EXISTS stock_count_measurements (
+    measurement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES stock_count_sessions(session_id),
+    tank_id TEXT NOT NULL,
+    measured_barrels TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL REFERENCES supply_users(user_id),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(session_id, tank_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_measurements_session
+ON stock_count_measurements(session_id, measurement_id);
+
+CREATE TABLE IF NOT EXISTS stock_count_reviews (
+    review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES stock_count_sessions(session_id),
+    decision TEXT NOT NULL CHECK(decision IN ('adjust','split_investigation','reject')),
+    reason_code TEXT NOT NULL,
+    note TEXT NOT NULL,
+    expected_session_revision INTEGER NOT NULL,
+    reviewer_id TEXT NOT NULL REFERENCES supply_users(user_id),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_reviews_session
+ON stock_count_reviews(session_id, review_id);
+
+CREATE TABLE IF NOT EXISTS stock_count_adjustments (
+    adjustment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES stock_count_sessions(session_id),
+    lot_id TEXT NOT NULL REFERENCES inventory_lots(lot_id),
+    lot_revision_before INTEGER NOT NULL,
+    lot_revision_after INTEGER NOT NULL,
+    balance_before_barrels TEXT NOT NULL,
+    delta_barrels TEXT NOT NULL,
+    balance_after_barrels TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    note TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    signed_by TEXT NOT NULL REFERENCES supply_users(user_id),
+    previous_signature TEXT NOT NULL,
+    signature_sha256 TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_session
+ON stock_count_adjustments(session_id, adjustment_id);
+
 CREATE TABLE IF NOT EXISTS nominations (
     nomination_id TEXT PRIMARY KEY,
     route_id TEXT NOT NULL REFERENCES routes(route_id),

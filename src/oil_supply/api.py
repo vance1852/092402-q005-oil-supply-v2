@@ -71,6 +71,25 @@ class JsonApplication:
                 return Response(201, self.service.add_inventory_lot(actor, payload))
             if method == "GET" and path == "/inventory/summary":
                 return Response(200, self.service.inventory_summary(query.get("facility_id", [""])[0], query.get("product", [""])[0]))
+            if method == "POST" and path == "/stock-counts":
+                return Response(201, self.service.open_stock_count(actor, payload))
+            if method == "GET" and path == "/stock-counts":
+                return Response(200, self.service.list_stock_counts(
+                    actor,
+                    facility_id=query.get("facility_id", [None])[0],
+                    product=query.get("product", [None])[0],
+                    status=query.get("status", [None])[0],
+                ))
+            if method == "GET" and len(parts) == 2 and parts[0] == "stock-counts":
+                return Response(200, self.service.stock_count(parts[1], actor))
+            if method == "GET" and len(parts) == 3 and parts[0] == "stock-counts" and parts[2] == "adjustment-chain":
+                return Response(200, self.service.verify_adjustment_chain(actor, parts[1]))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stock-counts" and parts[2] == "measurements":
+                return Response(201, self.service.record_measurement(actor, parts[1], payload))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stock-counts" and parts[2] == "settle":
+                return Response(200, self.service.settle_stock_count(actor, parts[1], payload))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stock-counts" and parts[2] == "review":
+                return Response(200, self.service.review_stock_count(actor, parts[1], payload))
             if method == "POST" and path == "/nominations":
                 return Response(201, self.service.submit_nomination(actor, payload))
             if method == "POST" and len(parts) == 3 and parts[0] == "routes" and parts[2] == "allocate":

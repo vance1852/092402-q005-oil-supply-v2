@@ -28,17 +28,33 @@ from .planning import (
     weighted_inventory_cost,
 )
 from .storage import initialize, transaction
+from .stocktake import StockCountMixin
 
 
 ROLE_PERMISSIONS = {
     "planner": {"quote.write", "catalog.write", "scenario.write", "scenario.run"},
-    "dispatcher": {"nomination.write", "allocation.run", "transfer.write", "inventory.write"},
-    "risk": {"outage.write", "scenario.approve", "report.read"},
-    "auditor": {"report.read", "audit.read"},
+    "dispatcher": {
+        "nomination.write",
+        "allocation.run",
+        "transfer.write",
+        "inventory.write",
+        "stock_count.open",
+        "stock_count.measure",
+        "stock_count.settle",
+        "stock_count.read",
+    },
+    "risk": {
+        "outage.write",
+        "scenario.approve",
+        "report.read",
+        "stock_count.review",
+        "stock_count.read",
+    },
+    "auditor": {"report.read", "audit.read", "stock_count.read"},
 }
 
 
-class SupplyService:
+class SupplyService(StockCountMixin):
     def __init__(self, connection: sqlite3.Connection, clock=None) -> None:
         self.connection = connection
         self.clock = clock or SystemClock()

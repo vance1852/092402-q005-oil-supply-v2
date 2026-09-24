@@ -24,13 +24,26 @@ def run(workspace: Path) -> dict[str, object]:
     service.create_facility("plan", {"facility_id": "terminal-b", "name": "沿海终端", "kind": "terminal", "timezone": "Asia/Shanghai", "capacity_barrels": "800000"})
     service.create_route("plan", {"route_id": "pipe-a-b", "origin_id": "field-a", "destination_id": "terminal-b", "product": "crude", "daily_capacity": "100000", "loss_basis_points": 25, "transit_hours": 36})
     service.add_inventory_lot("dispatch", {"lot_id": "lot-001", "facility_id": "field-a", "product": "crude", "grade": "BRENT", "quantity_barrels": "150000", "unit_cost_usd": "91.25", "received_at": "2026-09-24T06:00:00Z"})
+    service.add_inventory_lot("dispatch", {"lot_id": "lot-002", "facility_id": "terminal-b", "product": "crude", "grade": "BRENT", "quantity_barrels": "12000", "unit_cost_usd": "91.40", "received_at": "2026-09-23T18:00:00Z"})
     service.submit_nomination("dispatch", {"nomination_id": "nom-001", "route_id": "pipe-a-b", "shipper_id": "refinery-east", "service_date": "2026-09-25", "requested_barrels": "80000", "priority": 10, "idempotency_key": "nom-key-001"})
     allocation = service.allocate("dispatch", "pipe-a-b", "2026-09-25")
     transfer = service.dispatch_transfer("dispatch", "transfer-001", "nom-001", "lot-001", 2)
+    service.open_stock_count("dispatch", {"session_id": "count-001", "facility_id": "terminal-b", "product": "crude", "tolerance_percent": "1"})
+    service.record_measurement("dispatch", "count-001", {"tank_id": "tank-1", "measured_barrels": "7960", "observed_at": "2026-09-24T08:10:00Z"})
+    service.record_measurement("dispatch", "count-001", {"tank_id": "tank-2", "measured_barrels": "3990", "observed_at": "2026-09-24T08:12:00Z"})
+    count_view = service.stock_count("count-001", "dispatch")
+    count_settled = service.settle_stock_count("dispatch", "count-001", {
+        "idempotency_key": "count-settle-001",
+        "reason_code": "tank-calibration",
+        "note": "交接班盘点，罐表偏差在容差内",
+        "expected_revision": count_view["revision"],
+        "expected_balance_token": count_view["live_inventory"]["balance_token"],
+    })
+    count_chain = service.verify_adjustment_chain("audit", "count-001")
     service.create_scenario("plan", {"scenario_id": "pipeline-restart", "name": "关键管道恢复与需求回落", "price_index_drop_percent": "9", "route_capacity_changes": {"pipe-a-b": "20"}, "demand_changes": {"field-a:crude": "-5"}})
     service.approve_scenario("risk", "pipeline-restart", 1)
     scenario = service.run_scenario("plan", "pipeline-restart", "2026-09-23")
-    result = {"status": "ok", "price": service.price_summary("BRENT"), "allocation_id": allocation["allocation_id"], "transfer": transfer, "scenario_run_id": scenario["run_id"], "audit": service.audit_chain("audit"), "workspace": workspace.name}
+    result = {"status": "ok", "price": service.price_summary("BRENT"), "allocation_id": allocation["allocation_id"], "transfer": transfer, "stock_count": {"session_id": "count-001", "status": count_settled["status"], "book_barrels": count_settled["snapshots"]["book_barrels"], "measured_barrels": count_settled["measurement"]["measured_barrels"], "in_transit_snapshot": len(count_settled["snapshots"]["in_transit"]), "adjustments": count_settled["adjustments"]["count"], "chain_valid": count_chain["valid"]}, "scenario_run_id": scenario["run_id"], "audit": service.audit_chain("audit"), "workspace": workspace.name}
     connection.close()
     return result
 

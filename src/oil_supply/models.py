@@ -223,6 +223,53 @@ class NominationRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class StockCountSessionRequest:
+    session_id: str
+    facility_id: str
+    product: str
+    tolerance_percent: Decimal
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "StockCountSessionRequest":
+        product = required_text(raw.get("product"), "product", 32)
+        if product not in PRODUCTS:
+            raise ValidationFailed("product 不是受支持的油品")
+        return cls(
+            session_id=identifier(raw.get("session_id"), "session_id"),
+            facility_id=identifier(raw.get("facility_id"), "facility_id"),
+            product=product,
+            tolerance_percent=decimal_value(
+                raw.get("tolerance_percent", 0),
+                "tolerance_percent",
+                minimum=Decimal("0"),
+                maximum=Decimal("100"),
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TankMeasurement:
+    tank_id: str
+    measured_barrels: Decimal
+    observed_at: str
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "TankMeasurement":
+        observed_at = required_text(raw.get("observed_at"), "observed_at", 40)
+        try:
+            parse_utc(observed_at, "observed_at")
+        except ValueError as exc:
+            raise ValidationFailed(str(exc)) from exc
+        return cls(
+            tank_id=identifier(raw.get("tank_id"), "tank_id"),
+            measured_barrels=decimal_value(
+                raw.get("measured_barrels"), "measured_barrels", minimum=Decimal("0")
+            ),
+            observed_at=observed_at,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SupplyScenario:
     scenario_id: str
     name: str

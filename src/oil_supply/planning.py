@@ -178,14 +178,70 @@ def reconcile_inventory(
     if tolerance_percent < ZERO:
         raise ValueError("容差不能为负数")
     delta = quantize_volume(measured_quantity - book_quantity)
-    ratio = ZERO if book_quantity == ZERO else abs(delta) / book_quantity * HUNDRED
+    if book_quantity == ZERO:
+        # 账面为零时任何盘盈都无法用百分比容差吸收，必须升级复核；
+        # 账面与实物都为零属于正常无差异。
+        within = measured_quantity == ZERO
+        ratio = None
+    else:
+        ratio = abs(delta) / book_quantity * HUNDRED
+        within = ratio <= tolerance_percent
     return {
         "book_quantity": decimal_text(quantize_volume(book_quantity)),
         "measured_quantity": decimal_text(quantize_volume(measured_quantity)),
         "delta_barrels": decimal_text(delta),
-        "variance_percent": decimal_text(ratio.quantize(Decimal("0.0001"))),
-        "within_tolerance": ratio <= tolerance_percent,
+        "variance_percent": None if ratio is None else decimal_text(ratio.quantize(Decimal("0.0001"))),
+        "within_tolerance": within,
     }
+
+
+def allocate_lot_deltas(
+    balances: Sequence[tuple[str, Decimal]],
+    delta: Decimal,
+) -> list[dict[str, str]]:
+    """把按油品汇总的盘点差异按余额比例摊派到各个批次。
+
+    除最后一个批次外依次按剩余余额比例取整，最后一个批次吸收舍入残差，
+    保证摊派额之和恰好等于 delta，且任何批次不会被扣成负数。
+    """
+    ordered = [(lot_id, quantize_volume(Decimal(str(balance)))) for lot_id, balance in balances]
+    target = quantize_volume(Decimal(str(delta)))
+    if not ordered:
+        if target == ZERO:
+            return []
+        raise ValueError("没有可摊派差异的库存批次")
+    total = sum((balance for _, balance in ordered), ZERO)
+    if target < ZERO and -target > total:
+        raise ValueError("盘亏数量不能超过账面库存")
+    if total == ZERO:
+        if target == ZERO:
+            return [
+                {"lot_id": lot_id, "delta_barrels": decimal_text(ZERO)}
+                for lot_id, _ in ordered
+            ]
+        if target < ZERO:
+            raise ValueError("账面余额为零时无法记录盘亏")
+        # 零库存盘盈：无法按余额比例摊派，归属快照中最后接收的批次（序列末尾）。
+        return [
+            {"lot_id": lot_id, "delta_barrels": decimal_text(target if index == len(ordered) - 1 else ZERO)}
+            for index, (lot_id, _) in enumerate(ordered)
+        ]
+    result: list[dict[str, str]] = []
+    remaining = target
+    for index, (lot_id, balance) in enumerate(ordered):
+        if index == len(ordered) - 1:
+            share = remaining
+        else:
+            remaining_book = sum((item[1] for item in ordered[index:]), ZERO)
+            share = quantize_volume(remaining * balance / remaining_book)
+            if target < ZERO and share < -balance:
+                share = -balance
+        result.append({
+            "lot_id": lot_id,
+            "delta_barrels": decimal_text(share),
+        })
+        remaining -= share
+    return result
 
 
 def scenario_projection(
