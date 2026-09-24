@@ -30,7 +30,14 @@ def run(workspace: Path) -> dict[str, object]:
     service.create_scenario("plan", {"scenario_id": "pipeline-restart", "name": "关键管道恢复与需求回落", "price_index_drop_percent": "9", "route_capacity_changes": {"pipe-a-b": "20"}, "demand_changes": {"field-a:crude": "-5"}})
     service.approve_scenario("risk", "pipeline-restart", 1)
     scenario = service.run_scenario("plan", "pipeline-restart", "2026-09-23")
-    result = {"status": "ok", "price": service.price_summary("BRENT"), "allocation_id": allocation["allocation_id"], "transfer": transfer, "scenario_run_id": scenario["run_id"], "audit": service.audit_chain("audit"), "workspace": workspace.name}
+    service.add_inventory_lot("dispatch", {"lot_id": "lot-002", "facility_id": "terminal-b", "product": "crude", "grade": "BRENT", "quantity_barrels": "120000", "unit_cost_usd": "92.00", "received_at": "2026-09-24T07:00:00Z"})
+    stocktake = service.stocktakes.open_session("dispatch", {"session_id": "count-0924", "facility_id": "terminal-b", "tolerance_percent": "0.5", "products": ["crude"]})
+    service.stocktakes.record_measurement("dispatch", "count-0924", {"tank_id": "tank-1", "product": "crude", "measured_barrels": "80000", "measured_at": "2026-09-24T08:30:00Z"})
+    service.stocktakes.record_measurement("dispatch", "count-0924", {"tank_id": "tank-2", "product": "crude", "measured_barrels": "39600", "measured_at": "2026-09-24T08:45:00Z"})
+    counted = next(line for line in service.stocktakes.session("count-0924")["lines"] if line["product"] == "crude")
+    settled = service.stocktakes.settle_line("dispatch", "count-0924", {"product": "crude", "decision": "adjust", "reason_code": "normal_loss", "note": "交接班罐表复核，自然损耗", "idempotency_key": "count-0924-crude", "expected_revision": counted["revision"]})
+    service.stocktakes.close_session("dispatch", "count-0924")
+    result = {"status": "ok", "price": service.price_summary("BRENT"), "allocation_id": allocation["allocation_id"], "transfer": transfer, "stocktake": {"session_id": stocktake["session_id"], "snapshot_sha256": stocktake["snapshot_sha256"], "settled_state": settled["state"], "adjustment_id": settled["adjustment_id"]}, "scenario_run_id": scenario["run_id"], "audit": service.audit_chain("audit"), "workspace": workspace.name}
     connection.close()
     return result
 

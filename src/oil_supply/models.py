@@ -222,6 +222,115 @@ class NominationRequest:
         )
 
 
+STOCKTAKE_DECISIONS = {"adjust", "split_investigation", "reject"}
+STOCKTAKE_REASONS = {
+    "measurement_error",
+    "normal_loss",
+    "wrong_lot",
+    "contamination",
+    "investigation",
+    "other",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class StocktakeOpen:
+    session_id: str
+    facility_id: str
+    tolerance_percent: Decimal
+    products: tuple[str, ...]
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "StocktakeOpen":
+        products = raw.get("products", ())
+        if not isinstance(products, (list, tuple)):
+            raise ValidationFailed("products 必须是油品数组")
+        parsed_products = tuple(
+            required_text(item, "products 项", 32) for item in products
+        )
+        for product in parsed_products:
+            if product not in PRODUCTS:
+                raise ValidationFailed("products 包含不受支持的油品")
+        return cls(
+            session_id=identifier(raw.get("session_id"), "session_id"),
+            facility_id=identifier(raw.get("facility_id"), "facility_id"),
+            tolerance_percent=decimal_value(
+                raw.get("tolerance_percent", 0),
+                "tolerance_percent",
+                minimum=Decimal("0"),
+                maximum=Decimal("100"),
+            ),
+            products=parsed_products,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TankMeasurement:
+    tank_id: str
+    product: str
+    measured_barrels: Decimal
+    measured_at: str | None
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "TankMeasurement":
+        product = required_text(raw.get("product"), "product", 32)
+        if product not in PRODUCTS:
+            raise ValidationFailed("product 不是受支持的油品")
+        measured_at = raw.get("measured_at")
+        if measured_at is not None:
+            measured_at = required_text(measured_at, "measured_at", 40)
+            try:
+                parse_utc(measured_at, "measured_at")
+            except ValueError as exc:
+                raise ValidationFailed(str(exc)) from exc
+        return cls(
+            tank_id=identifier(raw.get("tank_id"), "tank_id"),
+            product=product,
+            measured_barrels=decimal_value(
+                raw.get("measured_barrels"), "measured_barrels", minimum=Decimal("0")
+            ),
+            measured_at=measured_at,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class StocktakeDecision:
+    product: str
+    decision: str
+    reason_code: str
+    note: str
+    idempotency_key: str
+    expected_revision: int
+    target_lot_id: str | None
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "StocktakeDecision":
+        product = required_text(raw.get("product"), "product", 32)
+        if product not in PRODUCTS:
+            raise ValidationFailed("product 不是受支持的油品")
+        decision = required_text(raw.get("decision"), "decision", 32)
+        if decision not in STOCKTAKE_DECISIONS:
+            raise ValidationFailed("decision 必须是 adjust、split_investigation 或 reject")
+        reason_code = required_text(raw.get("reason_code"), "reason_code", 32)
+        if reason_code not in STOCKTAKE_REASONS:
+            raise ValidationFailed("reason_code 不是受支持的原因代码")
+        revision = raw.get("expected_revision")
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
+            raise ValidationFailed("expected_revision 必须是正整数")
+        target_lot_id = raw.get("target_lot_id")
+        if target_lot_id is not None:
+            target_lot_id = identifier(target_lot_id, "target_lot_id")
+        return cls(
+            product=product,
+            decision=decision,
+            reason_code=reason_code,
+            note=required_text(raw.get("note"), "note", 512),
+            idempotency_key=identifier(raw.get("idempotency_key"), "idempotency_key"),
+            expected_revision=revision,
+            target_lot_id=target_lot_id,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class SupplyScenario:
     scenario_id: str

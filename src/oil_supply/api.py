@@ -71,6 +71,25 @@ class JsonApplication:
                 return Response(201, self.service.add_inventory_lot(actor, payload))
             if method == "GET" and path == "/inventory/summary":
                 return Response(200, self.service.inventory_summary(query.get("facility_id", [""])[0], query.get("product", [""])[0]))
+            if method == "POST" and path == "/stocktakes":
+                return Response(201, self.service.stocktakes.open_session(actor, payload))
+            if method == "GET" and path == "/stocktakes":
+                return Response(
+                    200,
+                    self.service.stocktakes.list_sessions(
+                        query.get("facility_id", [None])[0], query.get("state", [None])[0]
+                    ),
+                )
+            if method == "GET" and len(parts) == 2 and parts[0] == "stocktakes":
+                return Response(200, self.service.stocktakes.session(parts[1]))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stocktakes" and parts[2] == "measurements":
+                return Response(201, self.service.stocktakes.record_measurement(actor, parts[1], payload))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stocktakes" and parts[2] == "settle":
+                return Response(200, self.service.stocktakes.settle_line(actor, parts[1], payload))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stocktakes" and parts[2] == "investigation":
+                return Response(200, self.service.stocktakes.resolve_investigation(actor, parts[1], payload["product"], payload))
+            if method == "POST" and len(parts) == 3 and parts[0] == "stocktakes" and parts[2] == "close":
+                return Response(200, self.service.stocktakes.close_session(actor, parts[1]))
             if method == "POST" and path == "/nominations":
                 return Response(201, self.service.submit_nomination(actor, payload))
             if method == "POST" and len(parts) == 3 and parts[0] == "routes" and parts[2] == "allocate":

@@ -27,13 +27,23 @@ from .planning import (
     scenario_projection,
     weighted_inventory_cost,
 )
+from .stocktake import StocktakeService
 from .storage import initialize, transaction
 
 
 ROLE_PERMISSIONS = {
     "planner": {"quote.write", "catalog.write", "scenario.write", "scenario.run"},
-    "dispatcher": {"nomination.write", "allocation.run", "transfer.write", "inventory.write"},
-    "risk": {"outage.write", "scenario.approve", "report.read"},
+    "dispatcher": {
+        "nomination.write",
+        "allocation.run",
+        "transfer.write",
+        "inventory.write",
+        "stocktake.open",
+        "stocktake.measure",
+        "stocktake.settle",
+        "stocktake.close",
+    },
+    "risk": {"outage.write", "scenario.approve", "report.read", "stocktake.review"},
     "auditor": {"report.read", "audit.read"},
 }
 
@@ -43,6 +53,7 @@ class SupplyService:
         self.connection = connection
         self.clock = clock or SystemClock()
         initialize(connection)
+        self.stocktakes = StocktakeService(connection, self, self.clock)
 
     def _now(self) -> str:
         return utc_text(self.clock.now())

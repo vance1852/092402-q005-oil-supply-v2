@@ -100,7 +100,12 @@ CREATE TABLE IF NOT EXISTS inventory_adjustments (
     note TEXT NOT NULL,
     idempotency_key TEXT NOT NULL UNIQUE,
     actor_id TEXT NOT NULL REFERENCES supply_users(user_id),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    balance_before TEXT,
+    balance_after TEXT,
+    lot_revision_before INTEGER,
+    stocktake_session_id TEXT,
+    stocktake_product TEXT
 );
 
 CREATE TABLE IF NOT EXISTS nominations (
@@ -169,6 +174,82 @@ CREATE TABLE IF NOT EXISTS scenario_runs (
     created_by TEXT NOT NULL REFERENCES supply_users(user_id),
     created_at TEXT NOT NULL,
     UNIQUE(scenario_id, as_of_date, input_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS stocktake_sessions (
+    session_id TEXT PRIMARY KEY,
+    facility_id TEXT NOT NULL REFERENCES facilities(facility_id),
+    tolerance_percent TEXT NOT NULL,
+    products_json TEXT NOT NULL,
+    snapshot_sha256 TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open','closed')),
+    revision INTEGER NOT NULL DEFAULT 1,
+    opened_by TEXT NOT NULL REFERENCES supply_users(user_id),
+    opened_at TEXT NOT NULL,
+    closed_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stocktake_one_open_per_facility
+ON stocktake_sessions(facility_id) WHERE state='open';
+
+CREATE TABLE IF NOT EXISTS stocktake_snapshot_lots (
+    session_id TEXT NOT NULL REFERENCES stocktake_sessions(session_id),
+    lot_id TEXT NOT NULL,
+    product TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    opening_available_barrels TEXT NOT NULL,
+    lot_revision INTEGER NOT NULL,
+    PRIMARY KEY(session_id, lot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stocktake_snapshot_product
+ON stocktake_snapshot_lots(session_id, product);
+
+CREATE TABLE IF NOT EXISTS stocktake_tank_measurements (
+    measurement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES stocktake_sessions(session_id),
+    tank_id TEXT NOT NULL,
+    product TEXT NOT NULL,
+    measured_barrels TEXT NOT NULL,
+    measured_at TEXT NOT NULL,
+    recorded_by TEXT NOT NULL REFERENCES supply_users(user_id),
+    recorded_at TEXT NOT NULL,
+    UNIQUE(session_id, tank_id)
+);
+
+CREATE TABLE IF NOT EXISTS stocktake_product_lines (
+    session_id TEXT NOT NULL REFERENCES stocktake_sessions(session_id),
+    product TEXT NOT NULL,
+    state TEXT NOT NULL
+        CHECK(state IN ('unmeasured','pending_review','adjusted','rejected','investigating')),
+    opening_barrels TEXT NOT NULL,
+    in_transit_barrels TEXT NOT NULL,
+    measured_barrels TEXT NOT NULL DEFAULT '0',
+    delta_barrels TEXT NOT NULL DEFAULT '0',
+    variance_percent TEXT NOT NULL DEFAULT '0',
+    within_tolerance INTEGER NOT NULL DEFAULT 1 CHECK(within_tolerance IN (0,1)),
+    measured_input_sha256 TEXT NOT NULL DEFAULT '',
+    adjustment_id INTEGER REFERENCES inventory_adjustments(adjustment_id),
+    revision INTEGER NOT NULL DEFAULT 1,
+    resolved_by TEXT REFERENCES supply_users(user_id),
+    resolved_at TEXT,
+    reason_code TEXT,
+    note TEXT,
+    PRIMARY KEY(session_id, product)
+);
+
+CREATE TABLE IF NOT EXISTS stocktake_decisions (
+    decision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES stocktake_sessions(session_id),
+    product TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('adjust','split_investigation','reject','investigation_resolved')),
+    reason_code TEXT NOT NULL,
+    note TEXT NOT NULL,
+    expected_line_revision INTEGER NOT NULL,
+    expected_snapshot_sha256 TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    actor_id TEXT NOT NULL REFERENCES supply_users(user_id),
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS supply_idempotency (
